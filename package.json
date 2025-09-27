@@ -20,6 +20,10 @@
     "demo-escrow-complete": "npx ts-node src/index.ts demo-escrow-complete",
     "check-balances": "npx ts-node src/index.ts check-balances",
     "deploy-escrow": "node scripts/deploy-escrow-auto.js",
+    "deploy-autopay": "node scripts/deploy-autopay.js",
+    "fund-autopay": "node scripts/fund-autopay.js",
+    "auto-execute": "node scripts/auto-execute-payments.js",
+    "manage-autopay": "npx ts-node src/cli/index.ts manage-autopay",
     "setup-testnet": "node testnet-setup.js",
     "postinstall": "npm run build"
   },

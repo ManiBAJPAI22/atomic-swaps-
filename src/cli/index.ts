@@ -9,6 +9,7 @@ import { BtcToEvmSwap } from '../swap/btc-to-evm';
 import { BtcToPyusdSwap } from '../swap/btc-to-pyusd';
 import { PyusdToBtcSwap } from '../swap/pyusd-to-btc';
 import { EscrowManager } from '../mock/escrow-manager';
+import { AutoPayManager } from '../evm/autopay-manager';
 import { SwapConfig } from '../types';
 import { ethers } from 'ethers';
 import { EvmWalletManager } from '../evm/wallet';
@@ -274,6 +275,133 @@ program
     } catch (error) {
       console.error(chalk.red('❌ Error:'), error);
       process.exit(1);
+    }
+  });
+
+program
+  .command('deploy-autopay')
+  .description('Deploy AutoPay contract with dynamic inputs')
+  .option('--merchant <address>', 'Merchant EVM address')
+  .option('--amount <amount>', 'Payment amount in PYUSD (6 decimals)')
+  .option('--interval <minutes>', 'Payment interval in minutes')
+  .option('--duration <hours>', 'Total duration in hours')
+  .action(async (options) => {
+    console.log('🚀 AutoPay Contract Deployment\n');
+    
+    // Get inputs from user if not provided
+    const answers = await inquirer.prompt([
+      {
+        type: 'input',
+        name: 'merchant',
+        message: 'Enter merchant EVM address:',
+        default: options.merchant,
+        validate: (input) => ethers.isAddress(input) || 'Invalid EVM address'
+      },
+      {
+        type: 'input',
+        name: 'amount',
+        message: 'Enter payment amount in PYUSD:',
+        default: options.amount || '0.25',
+        validate: (input) => !isNaN(parseFloat(input)) || 'Invalid amount'
+      },
+      {
+        type: 'input',
+        name: 'interval',
+        message: 'Enter payment interval in minutes:',
+        default: options.interval || '6',
+        validate: (input) => !isNaN(parseInt(input)) || 'Invalid interval'
+      },
+      {
+        type: 'input',
+        name: 'duration',
+        message: 'Enter total duration in hours:',
+        default: options.duration || '24',
+        validate: (input) => !isNaN(parseInt(input)) || 'Invalid duration'
+      }
+    ]);
+
+    const paymentAmount = ethers.parseUnits(answers.amount, 6);
+    const paymentInterval = parseInt(answers.interval) * 60; // Convert to seconds
+    const totalDuration = parseInt(answers.duration) * 3600; // Convert to seconds
+
+    console.log('\n📋 AutoPay Configuration:');
+    console.log('   Merchant:', answers.merchant);
+    console.log('   Payment Amount:', answers.amount, 'PYUSD');
+    console.log('   Payment Interval:', answers.interval, 'minutes');
+    console.log('   Total Duration:', answers.duration, 'hours');
+    console.log('   Total Payments:', Math.floor(totalDuration / paymentInterval));
+
+    const { deployAutoPay } = require('../../scripts/deploy-autopay.js');
+    const autopayAddress = await deployAutoPay(
+      answers.merchant,
+      paymentAmount,
+      paymentInterval,
+      totalDuration
+    );
+
+    if (autopayAddress) {
+      console.log('\n🎉 AutoPay deployed successfully!');
+      console.log('Contract Address:', autopayAddress);
+      console.log('🔗 Explorer: https://sepolia.etherscan.io/address/' + autopayAddress);
+    } else {
+      console.log('\n❌ AutoPay deployment failed');
+    }
+  });
+
+program
+  .command('manage-autopay <address> <action>')
+  .description('Manage deployed AutoPay contract')
+  .action(async (address, action) => {
+    console.log('🔧 Debug - Address:', address);
+    console.log('🔧 Debug - Action:', action);
+    const rpcUrl = 'https://eth-sepolia.g.alchemy.com/v2/CQENf_IMmkawSrqgpR14l';
+    const pyusdAddress = '0xCaC524BcA292aaade2DF8A05cC58F0a65B1B3bB9';
+    const ownerPrivateKey = '4a174f09cb14c06e2c21ea76afaa82a44ead86ca3d18110f87869c078d0bc559';
+
+    const autopayManager = new AutoPayManager(rpcUrl, ownerPrivateKey, address, pyusdAddress);
+
+    try {
+      switch (action) {
+        case 'start':
+          await autopayManager.startAutoPay();
+          break;
+        case 'pause':
+          await autopayManager.pauseAutoPay();
+          break;
+        case 'resume':
+          await autopayManager.resumeAutoPay();
+          break;
+        case 'stop':
+          await autopayManager.stopAutoPay();
+          break;
+        case 'execute':
+          await autopayManager.executePayment();
+          break;
+        case 'withdraw':
+          await autopayManager.withdrawRemainingFunds();
+          break;
+        case 'update':
+          await autopayManager.updateBalance();
+          break;
+        case 'info':
+        default:
+          const info = await autopayManager.getAutoPayInfo();
+          console.log('\n📊 AutoPay Information:');
+          console.log('   Owner:', info.owner);
+          console.log('   Merchant:', info.merchant);
+          console.log('   Payment Amount:', ethers.formatUnits(info.paymentAmount, 6), 'PYUSD');
+          console.log('   Payment Interval:', info.paymentInterval.toString(), 'seconds');
+          console.log('   Total Duration:', info.totalDuration.toString(), 'seconds');
+          console.log('   Start Time:', new Date(Number(info.startTime) * 1000).toLocaleString());
+          console.log('   Last Payment:', new Date(Number(info.lastPaymentTime) * 1000).toLocaleString());
+          console.log('   Total Paid:', ethers.formatUnits(info.totalPaid, 6), 'PYUSD');
+          console.log('   Remaining Balance:', ethers.formatUnits(info.remainingBalance, 6), 'PYUSD');
+          console.log('   Is Active:', info.isActive);
+          console.log('   Is Paused:', info.isPaused);
+          break;
+      }
+    } catch (error: any) {
+      console.error('❌ Error:', error.message);
     }
   });
 
