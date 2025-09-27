@@ -3,12 +3,13 @@ import { randomBytes } from 'crypto';
 import { EvmWalletManager } from '../evm/wallet';
 import { BtcProvider } from '../btc/provider';
 import { SwapConfig, SwapOrder, SwapStatus } from '../types';
-import { walletFromPrivateKey, createSrcHtlcScript } from '../btc/htlc';
+import { walletFromPrivateKey, createSrcHtlcScript, createHtlcWithRecipientAddress } from '../btc/htlc';
 import { keccak256, ethers } from 'ethers';
 import { RealisticMockProvider } from '../mock/realistic-mock-provider';
 import { EscrowManager } from '../mock/escrow-manager';
 import { HtlcDetector } from '../btc/htlc-detector';
 import { BtcRpcFallback } from '../btc/rpc-fallback';
+import { HtlcExecutor } from '../btc/htlc-executor';
 
 export class BtcToPyusdSwap {
   private evmWallet: EvmWalletManager;
@@ -148,14 +149,37 @@ export class BtcToPyusdSwap {
       console.log('   • BTC transaction: 6/6 confirmations...');
       console.log('✅ BTC transaction confirmed');
 
-      // Phase 5: Resolver claims BTC and reveals secret
-      console.log('📝 Phase 5: Resolver claims BTC and reveals secret...');
-      console.log('🔍 Processing resolver BTC claim and secret revelation...');
+      // Phase 5: Execute real HTLC spending to your address
+      console.log('📝 Phase 5: Executing HTLC spending to recipient address...');
       console.log('🔍 Secret revealed:', order.secret.toString('hex'));
       
-      await this.delay(2000);
-      const resolverClaimTxHash = randomBytes(32).toString('hex');
-      console.log('✅ Resolver claimed BTC:', resolverClaimTxHash);
+      const htlcExecutor = new HtlcExecutor(this.btcProvider, bitcoin.networks.testnet);
+      const recipientAddress = 'tb1qpfrsr2k3t928vpuvrz0l4vdl3yyvpgwxleugmp';
+      
+      // Verify the secret matches the hash
+      const secretValid = htlcExecutor.verifyHtlcScript(htlcScript, order.secret, order.hashLock.sha256);
+      if (!secretValid) {
+        throw new Error('Invalid secret for HTLC');
+      }
+      
+      console.log('✅ Secret verified, executing HTLC spending...');
+      
+      // Execute real HTLC spending
+      const htlcResult = await htlcExecutor.executeHtlcSpending(
+        htlcInfo.address,
+        htlcScript,
+        order.secret,
+        recipientAddress,
+        fundingResult.utxos!,
+        this.config.btcPrivateKey
+      );
+      
+      if (!htlcResult.success) {
+        throw new Error(`HTLC execution failed: ${htlcResult.error}`);
+      }
+      
+      const resolverClaimTxHash = htlcResult.txHash!;
+      console.log('✅ BTC sent to recipient address:', recipientAddress);
       console.log('🔗 Explorer: https://mempool.space/testnet/tx/' + resolverClaimTxHash);
 
       // Phase 6: Escrow transfers PYUSD to maker
@@ -539,18 +563,18 @@ export class BtcToPyusdSwap {
 
   private getHtlcScript(order: SwapOrder): Buffer {
     const btcUser = walletFromPrivateKey(this.config.btcPrivateKey, bitcoin.networks.testnet);
-    const btcResolver = walletFromPrivateKey(
-      'cUJ4wz3dLzT8v2ZxKtRpU7qyXZ6E1qur87LGCGMehYTkWHnQTMeD', // Resolver private key
-      bitcoin.networks.testnet
-    );
+    
+    // Your specific Bitcoin address where BTC will be sent when PYUSD is transferred
+    const recipientAddress = 'tb1qpfrsr2k3t928vpuvrz0l4vdl3yyvpgwxleugmp';
 
-    return createSrcHtlcScript(
+    return createHtlcWithRecipientAddress(
       order.orderHash,
       order.hashLock.sha256,
       512, // 512 seconds timelock (BIP68 requirement)
       1024, // 1024 seconds cancellation (BIP68 requirement)
+      recipientAddress, // Your specific address
       btcUser.publicKey,
-      btcResolver.publicKey
+      bitcoin.networks.testnet
     );
   }
 }

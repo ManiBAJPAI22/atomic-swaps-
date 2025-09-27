@@ -87,6 +87,56 @@ export function createSrcHtlcScript(
   return bitcoin.script.compile(scriptChunks);
 }
 
+// New function for HTLC with specific recipient address
+export function createHtlcWithRecipientAddress(
+  orderHashHex: string,
+  hashLockSha256: Buffer,
+  privateWithdrawal: number | bigint,
+  privateCancellation: number | bigint,
+  recipientAddress: string, // Your specific address: tb1qpfrsr2k3t928vpuvrz0l4vdl3yyvpgwxleugmp
+  btcUserPublicKey: Buffer,
+  network: bitcoin.Network = bitcoin.networks.testnet
+): Buffer {
+  const scriptChunks: (Buffer | number)[] = [];
+
+  // Include unique order hash at the start
+  scriptChunks.push(Buffer.from(orderHashHex, 'hex'));
+  scriptChunks.push(bitcoin.opcodes.OP_DROP);
+
+  // Optional withdrawal lock
+  scriptChunks.push(bitcoin.script.number.encode(bip68.encode({ seconds: Number(privateWithdrawal) })));
+  scriptChunks.push(bitcoin.opcodes.OP_CHECKSEQUENCEVERIFY);
+  scriptChunks.push(bitcoin.opcodes.OP_DROP);
+
+  // Begin IF branch: hashlock & recipient address
+  scriptChunks.push(bitcoin.opcodes.OP_IF);
+  scriptChunks.push(bitcoin.opcodes.OP_SHA256);
+  scriptChunks.push(hashLockSha256);
+  scriptChunks.push(bitcoin.opcodes.OP_EQUALVERIFY);
+  
+  // Convert recipient address to script hash
+  const recipientScriptHash = bitcoin.crypto.hash160(
+    bitcoin.address.toOutputScript(recipientAddress, network)
+  );
+  scriptChunks.push(bitcoin.opcodes.OP_DUP);
+  scriptChunks.push(bitcoin.opcodes.OP_HASH160);
+  scriptChunks.push(recipientScriptHash);
+  scriptChunks.push(bitcoin.opcodes.OP_EQUALVERIFY);
+  scriptChunks.push(bitcoin.opcodes.OP_CHECKSIG);
+
+  // ELSE branch: timeout & user (refund)
+  scriptChunks.push(bitcoin.opcodes.OP_ELSE);
+  scriptChunks.push(bitcoin.script.number.encode(bip68.encode({ seconds: Number(privateCancellation) })));
+  scriptChunks.push(bitcoin.opcodes.OP_CHECKSEQUENCEVERIFY);
+  scriptChunks.push(bitcoin.opcodes.OP_DROP);
+  scriptChunks.push(btcUserPublicKey);
+  scriptChunks.push(bitcoin.opcodes.OP_CHECKSIG);
+
+  scriptChunks.push(bitcoin.opcodes.OP_ENDIF);
+
+  return bitcoin.script.compile(scriptChunks);
+}
+
 export function createDstHtlcScript(
   orderHashHex: string,
   hashLockSha256: Buffer,
