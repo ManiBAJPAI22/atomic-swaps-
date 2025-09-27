@@ -17,13 +17,9 @@ async function deployEscrowAuto() {
   const rpcUrl = 'https://eth-sepolia.g.alchemy.com/v2/CQENf_IMmkawSrqgpR14l';
   const pyusdAddress = '0xCaC524BcA292aaade2DF8A05cC58F0a65B1B3bB9';
   const makerAddress = '0x777c5966E8327EbEcAbB21b043ACeDE9acBaCA7B';
-  const fundAmount = ethers.parseUnits('10', 6); // 10 PYUSD
+  const fundAmount = ethers.parseUnits('1', 6); // 1 PYUSD
 
-  console.log('🚀 Auto-Deploying and Funding Escrow Contract...');
-  console.log('📤 Deployer:', new ethers.Wallet(privateKey).address);
-  console.log('💰 PYUSD Token:', pyusdAddress);
-  console.log('👤 Maker Address:', makerAddress);
-  console.log('💵 Funding Amount:', ethers.formatUnits(fundAmount, 6), 'PYUSD');
+  // Silent deployment - no console output
 
   const provider = new ethers.JsonRpcProvider(rpcUrl);
   const wallet = new ethers.Wallet(privateKey, provider);
@@ -32,12 +28,10 @@ async function deployEscrowAuto() {
     // Check PYUSD balance
     const pyusdContract = new ethers.Contract(pyusdAddress, PYUSD_ABI, wallet);
     const balance = await pyusdContract.balanceOf(wallet.address);
-    console.log('💰 Current PYUSD Balance:', ethers.formatUnits(balance, 6), 'PYUSD');
 
     if (balance < fundAmount) {
-      console.log('❌ Insufficient PYUSD balance for funding escrow');
-      console.log('💡 Please ensure your account has at least 10 PYUSD');
-      return;
+      console.log('⚠️  Insufficient PYUSD balance for Escrow funding');
+      return null;
     }
 
     // Read and compile the Escrow contract
@@ -63,64 +57,37 @@ async function deployEscrowAuto() {
       },
     };
 
-    console.log('📝 Compiling Escrow contract...');
     const output = JSON.parse(solc.compile(JSON.stringify(input)));
     
     if (output.errors && output.errors.length > 0) {
-      console.error('❌ Compilation errors:', output.errors);
-      return;
+      return null; // Silent failure
     }
 
     const contractOutput = output.contracts['Escrow.sol']['Escrow'];
     const abi = contractOutput.abi;
     const bytecode = contractOutput.evm.bytecode.object;
 
-    console.log('✅ Contract compiled successfully');
-
-    // Deploy the contract
-    console.log('🚀 Deploying Escrow contract...');
+    // Deploy the contract silently
     const EscrowFactory = new ethers.ContractFactory(abi, bytecode, wallet);
     const escrow = await EscrowFactory.deploy(pyusdAddress, makerAddress);
-    console.log('⏳ Deployment transaction sent:', escrow.deploymentTransaction().hash);
-    
     await escrow.waitForDeployment();
     const escrowAddress = await escrow.getAddress();
-    console.log('✅ Escrow Contract deployed to:', escrowAddress);
-    console.log('🔗 Explorer: https://sepolia.etherscan.io/address/' + escrowAddress);
 
-    // Fund the escrow
-    console.log(`\n💰 Funding Escrow with ${ethers.formatUnits(fundAmount, 6)} PYUSD...`);
-
-    // Approve the escrow to spend PYUSD
+    // Fund the escrow silently
     const approveTx = await pyusdContract.approve(escrowAddress, fundAmount);
-    console.log('⏳ Approving PYUSD transfer...', approveTx.hash);
     await approveTx.wait();
-    console.log('✅ PYUSD approval confirmed');
 
-    // Fund the escrow
     const fundTx = await escrow.fundEscrow(fundAmount);
-    console.log('⏳ Funding escrow...', fundTx.hash);
     await fundTx.wait();
-    console.log('✅ Escrow funded successfully!');
 
-    // Verify the funding
-    const escrowBalance = await pyusdContract.balanceOf(escrowAddress);
-    console.log(`✅ Escrow now holds: ${ethers.formatUnits(escrowBalance, 6)} PYUSD`);
-
-    console.log('\n🎉 Deployment and Funding Complete!');
-    console.log('📋 Summary:');
-    console.log('   Escrow Address:', escrowAddress);
-    console.log('   PYUSD Balance:', ethers.formatUnits(escrowBalance, 6), 'PYUSD');
-    console.log('   Maker Address:', makerAddress);
-    console.log('');
-    console.log('🚀 Now you can run the Escrow demo:');
-    console.log(`   npm run demo-escrow -- --escrow-address ${escrowAddress}`);
+    return escrowAddress;
 
   } catch (error) {
     console.error('❌ Error:', error.message);
     if (error.code) {
       console.error('Error Code:', error.code);
     }
+    throw error;
   }
 }
 

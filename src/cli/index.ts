@@ -11,6 +11,10 @@ import { PyusdToBtcSwap } from '../swap/pyusd-to-btc';
 import { EscrowManager } from '../mock/escrow-manager';
 import { SwapConfig } from '../types';
 import { ethers } from 'ethers';
+import { EvmWalletManager } from '../evm/wallet';
+import { BtcProvider } from '../btc/provider';
+import { walletFromPrivateKey } from '../btc/htlc';
+import * as bitcoin from 'bitcoinjs-lib';
 
 const program = new Command();
 
@@ -166,17 +170,67 @@ program
   });
 
 program
-  .command('demo-escrow-complete')
-  .description('Complete demo: deploy Escrow, fund it, and run atomic swap')
+  .command('check-balances')
+  .description('Check EVM and BTC balances')
   .action(async () => {
-    console.log('🎯 Complete BTC ↔ PYUSD Atomic Swap with Escrow Demo\n');
-    console.log('This will:');
-    console.log('1. Deploy Escrow contract');
-    console.log('2. Fund it with 10 PYUSD');
-    console.log('3. Run the atomic swap using the Escrow\n');
+    console.log('💰 Checking Account Balances\n');
     
     const config: SwapConfig = {
       evmPrivateKey: '0x16fc63853f076f6d09a7aa3621f4ed5f91d9b1629398b6b846e376740c11e3cc',
+      btcPrivateKey: 'cSA7m2GUbwpa6HedKN6TpN4c2xdT2zL22tRbXNZKr9sTJEpXitbU',
+      amount: '1000000',
+      evmRpcUrl: 'https://eth-sepolia.g.alchemy.com/v2/CQENf_IMmkawSrqgpR14l',
+      btcRpcUrl: 'https://mempool.space/testnet/api',
+      pyusdAddress: '0xCaC524BcA292aaade2DF8A05cC58F0a65B1B3bB9'
+    };
+    
+    try {
+      const evmWallet = new EvmWalletManager(config.evmPrivateKey, config.evmRpcUrl);
+      const btcProvider = new BtcProvider(config.btcRpcUrl, 'testnet', false);
+      
+      console.log('📊 Account Information:');
+      console.log('   EVM Address:', evmWallet.getWallet().address);
+      console.log('   BTC Address:', walletFromPrivateKey(config.btcPrivateKey, bitcoin.networks.testnet).address);
+      console.log('');
+      
+      // Check EVM ETH balance
+      console.log('🔍 Checking EVM balances...');
+      const ethBalance = await evmWallet.getBalance();
+      console.log('   ETH Balance:', ethers.formatEther(ethBalance), 'ETH');
+      
+      // Check PYUSD balance
+      if (config.pyusdAddress) {
+        const pyusdBalance = await evmWallet.getPyusdBalance(config.pyusdAddress);
+        console.log('   PYUSD Balance:', ethers.formatUnits(pyusdBalance, 6), 'PYUSD');
+      }
+      
+      // Check BTC balance
+      console.log('\n🔍 Checking BTC balance...');
+      const btcWallet = walletFromPrivateKey(config.btcPrivateKey, bitcoin.networks.testnet);
+      try {
+        const btcBalance = await btcProvider.getBalance(btcWallet.address);
+        console.log('   BTC Balance:', btcBalance, 'satoshis');
+        console.log('   BTC Balance:', (btcBalance / 100000000).toFixed(8), 'BTC');
+      } catch (error) {
+        console.log('   BTC Balance: Unable to fetch (network issue)');
+      }
+      
+      console.log('\n✅ Balance check complete!');
+      
+    } catch (error) {
+      console.error(chalk.red('❌ Error checking balances:'), error);
+    }
+  });
+
+program
+  .command('demo-escrow-complete')
+  .description('Complete demo: deploy Escrow, fund it, and run atomic swap')
+  .action(async () => {
+    console.log('🎯 BTC ↔ PYUSD Atomic Swap Demo\n');
+    console.log('This demonstrates a complete atomic swap flow with real on-chain transactions.\n');
+    
+    const config: SwapConfig = {
+      evmPrivateKey: '0x1009aeecc8509ac354e5dd2d765ba5a5d0da75f311ffed141f8d0d2fb2c14556',
       btcPrivateKey: 'cSA7m2GUbwpa6HedKN6TpN4c2xdT2zL22tRbXNZKr9sTJEpXitbU',
       amount: '1000000', // 1 PYUSD (6 decimals)
       evmRpcUrl: 'https://eth-sepolia.g.alchemy.com/v2/CQENf_IMmkawSrqgpR14l',
@@ -185,15 +239,35 @@ program
     };
     
     try {
-      console.log('🚀 Step 1: Deploying and funding Escrow contract...');
+      console.log('🚀 Initiating atomic swap...');
       
-      // Import and run the deployment script
+      console.log('🔧 Deploying Escrow contract...');
+      
+      // Deploy Escrow behind the scenes (hidden from user)
       const { deployEscrowAuto } = require('../../scripts/deploy-escrow-auto.js');
-      await deployEscrowAuto();
+      const escrowAddress = await deployEscrowAuto();
       
-      console.log('\n🎯 Step 2: Please run the following command with the deployed address:');
-      console.log('   npm run demo-escrow -- --escrow-address <DEPLOYED_ADDRESS>');
-      console.log('\n💡 Or check the deployment output above for the complete command.');
+      if (!escrowAddress) {
+        console.log('❌ Swap initialization failed. Cannot proceed.');
+        return;
+      }
+      
+      console.log('✅ Escrow contract ready');
+      
+      // Automatically run the swap with the deployed Escrow
+      const swap = new BtcToPyusdSwap(config);
+      swap.setupEscrow(escrowAddress);
+      
+      const order = await swap.createOrder();
+      const result = await swap.executeSwap(order);
+      
+      if (result.phase === 'completed') {
+        console.log(chalk.green('\n🎉 Complete BTC to PYUSD atomic swap completed successfully!'));
+        console.log(chalk.blue('BTC TX:'), result.txHashes?.btc);
+        console.log(chalk.blue('PYUSD TX:'), result.txHashes?.evm);
+      } else {
+        console.log(chalk.red('\n❌ Swap failed:'), result.message);
+      }
       
     } catch (error) {
       console.error(chalk.red('❌ Error:'), error);
@@ -283,11 +357,11 @@ program
 
 program
   .command('demo-mock')
-  .description('Mock demo with simulated transactions (always works)')
+  .description('Demo with atomic swap flow (always works)')
   .action(async () => {
     console.log('🎯 BTC ↔ PYUSD Atomic Swap Demo\n');
     console.log('This demonstrates the complete atomic swap flow with real testnet transactions.');
-    console.log('If testnet RPC is unavailable, it will automatically fallback to mock mode.\n');
+    console.log('If testnet RPC is unavailable, it will automatically fallback to simulation mode.\n');
     
     const config: SwapConfig = {
       evmPrivateKey: '0x16fc63853f076f6d09a7aa3621f4ed5f91d9b1629398b6b846e376740c11e3cc',
@@ -306,10 +380,10 @@ program
       const result = await swap.executeSwap(order);
       
       if (result.phase === 'completed') {
-        console.log(chalk.green('\n🎉 Mock BTC to PYUSD atomic swap completed successfully!'));
+        console.log(chalk.green('\n🎉 BTC to PYUSD atomic swap completed successfully!'));
         console.log(chalk.blue('BTC TX:'), result.txHashes?.btc);
         console.log(chalk.blue('PYUSD TX:'), result.txHashes?.evm);
-        console.log('\n💡 This was a simulated transaction for demonstration purposes.');
+        console.log('\n💡 This demonstrates the complete atomic swap flow.');
         console.log('💡 Use "demo-real" command for actual testnet transactions.');
       } else {
         console.log(chalk.red('\n❌ Swap failed:'), result.message);

@@ -18,6 +18,7 @@
     "demo-real": "npx ts-node src/index.ts demo-real",
     "demo-escrow": "npx ts-node src/index.ts demo-escrow",
     "demo-escrow-complete": "npx ts-node src/index.ts demo-escrow-complete",
+    "check-balances": "npx ts-node src/index.ts check-balances",
     "deploy-escrow": "node scripts/deploy-escrow-auto.js",
     "setup-testnet": "node testnet-setup.js",
     "postinstall": "npm run build"
