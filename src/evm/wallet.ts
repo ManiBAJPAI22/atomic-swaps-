@@ -1,6 +1,6 @@
 import { ethers, Wallet, JsonRpcProvider, Contract } from 'ethers';
 import { EvmWallet } from '../types';
-import { WETH_ABI, ERC20_ABI } from './contracts';
+import { WETH_ABI, ERC20_ABI, PYUSD_ABI } from './contracts';
 
 export class EvmWalletManager {
   private wallet: EvmWallet;
@@ -118,5 +118,40 @@ export class EvmWalletManager {
       isWithdrawn: await escrowContract.isWithdrawn(),
       isCancelled: await escrowContract.isCancelled()
     };
+  }
+
+  // PYUSD specific methods
+  public async getPyusdBalance(pyusdAddress: string): Promise<bigint> {
+    const pyusdContract = new Contract(pyusdAddress, PYUSD_ABI, this.wallet.provider);
+    return pyusdContract.balanceOf(this.wallet.address);
+  }
+
+  public async transferPyusd(pyusdAddress: string, toAddress: string, amount: bigint): Promise<string> {
+    const pyusdContract = new Contract(pyusdAddress, PYUSD_ABI, this.wallet.signer);
+    const tx = await pyusdContract.transfer(toAddress, amount);
+    await tx.wait();
+    return tx.hash;
+  }
+
+  public async approvePyusd(pyusdAddress: string, spender: string, amount: bigint): Promise<string> {
+    const pyusdContract = new Contract(pyusdAddress, PYUSD_ABI, this.wallet.signer);
+    const tx = await pyusdContract.approve(spender, amount);
+    await tx.wait();
+    return tx.hash;
+  }
+
+  public async getPyusdAllowance(pyusdAddress: string, spender: string): Promise<bigint> {
+    const pyusdContract = new Contract(pyusdAddress, PYUSD_ABI, this.wallet.provider);
+    return pyusdContract.allowance(this.wallet.address, spender);
+  }
+
+  public async getPyusdInfo(pyusdAddress: string): Promise<{name: string, symbol: string, decimals: number}> {
+    const pyusdContract = new Contract(pyusdAddress, PYUSD_ABI, this.wallet.provider);
+    const [name, symbol, decimals] = await Promise.all([
+      pyusdContract.name(),
+      pyusdContract.symbol(),
+      pyusdContract.decimals()
+    ]);
+    return { name, symbol, decimals };
   }
 }

@@ -5,6 +5,7 @@ export interface SwapConfig {
   btcRpcUrl: string;
   amount: string;
   evmTokenAddress?: string;
+  pyusdAddress?: string;
 }
 
 export interface SwapOrder {
@@ -14,10 +15,11 @@ export interface SwapOrder {
     keccak256: string;
     sha256: Buffer;
   };
-  srcChainId: number;
-  dstChainId: number;
+  srcChainId?: number;
+  dstChainId?: number;
   makingAmount: bigint;
   takingAmount: bigint;
+  amount?: bigint; // For backward compatibility
 }
 
 export interface BtcWallet {

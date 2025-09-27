@@ -1,41 +1,57 @@
 {
   "name": "atomic-swap-cli",
   "version": "1.0.0",
-  "description": "CLI for atomic swaps between EVM Sepolia and BTC Testnet4",
+  "description": "CLI for atomic swaps between EVM Sepolia and BTC Testnet3 with PYUSD support",
   "main": "dist/index.js",
   "bin": {
-    "atomic-swap": "dist/index.js"
+    "atomic-swap": "dist/index.js",
+    "real-atomic-swap": "dist/cli/real-cli.js"
   },
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
+    "real": "ts-node src/cli/real-cli.ts",
     "test": "jest",
     "test-setup": "node test-setup.js",
+    "demo-mock": "npx ts-node src/index.ts evm-to-btc --btc-rpc https://mock.btc.api",
+    "demo-real": "npx ts-node src/index.ts demo-real",
+    "demo-escrow": "npx ts-node src/index.ts demo-escrow",
+    "demo-escrow-complete": "npx ts-node src/index.ts demo-escrow-complete",
+    "deploy-escrow": "node scripts/deploy-escrow-auto.js",
+    "setup-testnet": "node testnet-setup.js",
     "postinstall": "npm run build"
   },
-  "keywords": ["atomic-swap", "bitcoin", "ethereum", "htlc", "cli"],
+  "keywords": [
+    "atomic-swap",
+    "bitcoin",
+    "ethereum",
+    "htlc",
+    "cli"
+  ],
   "author": "Your Name",
   "license": "MIT",
   "dependencies": {
-    "bitcoinjs-lib": "^6.1.5",
-    "ecpair": "^2.1.0",
     "@bitcoinerlab/secp256k1": "^1.1.4",
-    "bip68": "^1.0.0",
-    "ethers": "^6.8.1",
+    "@openzeppelin/contracts": "^5.4.0",
     "axios": "^1.6.2",
-    "commander": "^11.1.0",
-    "inquirer": "^9.2.12",
+    "bip68": "^1.0.0",
+    "bitcoinjs-lib": "^6.1.5",
     "chalk": "^5.3.0",
+    "commander": "^11.1.0",
+    "crypto": "^1.0.1",
+    "ecpair": "^2.1.0",
+    "ethers": "^6.8.1",
+    "inquirer": "^9.2.12",
     "ora": "^7.0.1",
-    "crypto": "^1.0.1"
+    "solc": "^0.8.30"
   },
   "devDependencies": {
-    "@types/node": "^20.8.10",
     "@types/inquirer": "^9.0.7",
-    "typescript": "^5.2.2",
-    "ts-node": "^10.9.1",
+    "@types/jest": "^29.5.8",
+    "@types/node": "^20.8.10",
     "jest": "^29.7.0",
-    "@types/jest": "^29.5.8"
+    "ts-node": "^10.9.1",
+    "typescript": "^5.2.2"
   }
 }

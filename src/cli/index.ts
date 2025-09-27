@@ -6,7 +6,11 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { EvmToBtcSwap } from '../swap/evm-to-btc';
 import { BtcToEvmSwap } from '../swap/btc-to-evm';
+import { BtcToPyusdSwap } from '../swap/btc-to-pyusd';
+import { PyusdToBtcSwap } from '../swap/pyusd-to-btc';
+import { EscrowManager } from '../mock/escrow-manager';
 import { SwapConfig } from '../types';
+import { ethers } from 'ethers';
 
 const program = new Command();
 
@@ -88,6 +92,298 @@ program
   });
 
 program
+  .command('btc-to-pyusd')
+  .description('Swap BTC to PYUSD')
+  .option('-e, --evm-key <key>', 'EVM private key')
+  .option('-b, --btc-key <key>', 'BTC private key')
+  .option('-a, --amount <amount>', 'Amount to swap (in satoshis)')
+  .option('--evm-rpc <url>', 'EVM RPC URL', 'https://sepolia.infura.io/v3/YOUR_KEY')
+  .option('--btc-rpc <url>', 'BTC RPC URL', 'https://blockstream.info/testnet/api')
+  .option('--pyusd-address <address>', 'PYUSD contract address', '0xCaC524BcA292aaade2DF8A05cC58F0a65B1B3bB9')
+  .action(async (options) => {
+    try {
+      const config = await getSwapConfig(options, 'btc-to-pyusd');
+      config.pyusdAddress = options.pyusdAddress;
+      const swap = new BtcToPyusdSwap(config);
+
+      const spinner = ora('Creating swap order...').start();
+      const order = await swap.createOrder();
+      spinner.succeed('Order created');
+
+      const executeSpinner = ora('Executing swap...').start();
+      const result = await swap.executeSwap(order);
+
+      if (result.phase === 'completed') {
+        executeSpinner.succeed('Swap completed successfully!');
+        console.log(chalk.green('\n🎉 Swap Results:'));
+        console.log(chalk.blue('Order Hash:'), result.txHashes?.btc);
+        console.log(chalk.blue('PYUSD TX:'), result.txHashes?.evm);
+      } else {
+        executeSpinner.fail('Swap failed');
+        console.log(chalk.red('Error:'), result.message);
+      }
+    } catch (error) {
+      console.error(chalk.red('❌ Error:'), error);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('pyusd-to-btc')
+  .description('Swap PYUSD to BTC')
+  .option('-e, --evm-key <key>', 'EVM private key')
+  .option('-b, --btc-key <key>', 'BTC private key')
+  .option('-a, --amount <amount>', 'Amount to swap (in PYUSD with 6 decimals)')
+  .option('--evm-rpc <url>', 'EVM RPC URL', 'https://sepolia.infura.io/v3/YOUR_KEY')
+  .option('--btc-rpc <url>', 'BTC RPC URL', 'https://blockstream.info/testnet/api')
+  .option('--pyusd-address <address>', 'PYUSD contract address', '0xCaC524BcA292aaade2DF8A05cC58F0a65B1B3bB9')
+  .action(async (options) => {
+    try {
+      const config = await getSwapConfig(options, 'pyusd-to-btc');
+      config.pyusdAddress = options.pyusdAddress;
+      const swap = new PyusdToBtcSwap(config);
+
+      const spinner = ora('Creating swap order...').start();
+      const order = await swap.createOrder();
+      spinner.succeed('Order created');
+
+      const executeSpinner = ora('Executing swap...').start();
+      const result = await swap.executeSwap(order);
+
+      if (result.phase === 'completed') {
+        executeSpinner.succeed('Swap completed successfully!');
+        console.log(chalk.green('\n🎉 Swap Results:'));
+        console.log(chalk.blue('Order Hash:'), result.txHashes?.evm);
+        console.log(chalk.blue('BTC TX:'), result.txHashes?.btc);
+      } else {
+        executeSpinner.fail('Swap failed');
+        console.log(chalk.red('Error:'), result.message);
+      }
+    } catch (error) {
+      console.error(chalk.red('❌ Error:'), error);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('demo-escrow-complete')
+  .description('Complete demo: deploy Escrow, fund it, and run atomic swap')
+  .action(async () => {
+    console.log('🎯 Complete BTC ↔ PYUSD Atomic Swap with Escrow Demo\n');
+    console.log('This will:');
+    console.log('1. Deploy Escrow contract');
+    console.log('2. Fund it with 10 PYUSD');
+    console.log('3. Run the atomic swap using the Escrow\n');
+    
+    const config: SwapConfig = {
+      evmPrivateKey: '0x16fc63853f076f6d09a7aa3621f4ed5f91d9b1629398b6b846e376740c11e3cc',
+      btcPrivateKey: 'cSA7m2GUbwpa6HedKN6TpN4c2xdT2zL22tRbXNZKr9sTJEpXitbU',
+      amount: '1000000', // 1 PYUSD (6 decimals)
+      evmRpcUrl: 'https://eth-sepolia.g.alchemy.com/v2/CQENf_IMmkawSrqgpR14l',
+      btcRpcUrl: 'https://mempool.space/testnet/api',
+      pyusdAddress: '0xCaC524BcA292aaade2DF8A05cC58F0a65B1B3bB9'
+    };
+    
+    try {
+      console.log('🚀 Step 1: Deploying and funding Escrow contract...');
+      
+      // Import and run the deployment script
+      const { deployEscrowAuto } = require('../../scripts/deploy-escrow-auto.js');
+      await deployEscrowAuto();
+      
+      console.log('\n🎯 Step 2: Please run the following command with the deployed address:');
+      console.log('   npm run demo-escrow -- --escrow-address <DEPLOYED_ADDRESS>');
+      console.log('\n💡 Or check the deployment output above for the complete command.');
+      
+    } catch (error) {
+      console.error(chalk.red('❌ Error:'), error);
+    }
+  });
+
+program
+  .command('demo-escrow')
+  .description('Demo with Escrow contract deployment and real PYUSD transfers')
+  .option('--escrow-address <address>', 'Pre-deployed Escrow contract address')
+  .action(async (options) => {
+    console.log('🎯 BTC ↔ PYUSD Atomic Swap with Escrow Demo\n');
+    console.log('This demonstrates the complete atomic swap flow with Escrow contract.');
+    console.log('The Escrow will be deployed and funded with PYUSD, then used for the swap.\n');
+    
+    const config: SwapConfig = {
+      evmPrivateKey: '0x16fc63853f076f6d09a7aa3621f4ed5f91d9b1629398b6b846e376740c11e3cc',
+      btcPrivateKey: 'cSA7m2GUbwpa6HedKN6TpN4c2xdT2zL22tRbXNZKr9sTJEpXitbU',
+      amount: '1000000', // 1 PYUSD (6 decimals)
+      evmRpcUrl: 'https://eth-sepolia.g.alchemy.com/v2/CQENf_IMmkawSrqgpR14l',
+      btcRpcUrl: 'https://mempool.space/testnet/api',
+      pyusdAddress: '0xCaC524BcA292aaade2DF8A05cC58F0a65B1B3bB9'
+    };
+    
+    try {
+      let escrowAddress = options.escrowAddress;
+      
+      if (!escrowAddress) {
+        console.log('🚀 Deploying Escrow contract...');
+        console.log('💡 For now, please deploy the Escrow contract manually using:');
+        console.log('   - Remix IDE: https://remix.ethereum.org/');
+        console.log('   - Contract: contracts/Escrow.sol');
+        console.log('   - Constructor args:');
+        console.log('     - _pyusdToken: 0xCaC524BcA292aaade2DF8A05cC58F0a65B1B3bB9');
+        console.log('     - _makerAddress: 0x777c5966E8327EbEcAbB21b043ACeDE9acBaCA7B');
+        console.log('   - Deployer private key: 1009aeecc8509ac354e5dd2d765ba5a5d0da75f311ffed141f8d0d2fb2c14556');
+        console.log('   - After deployment, call fundEscrow(10000000) to fund with 10 PYUSD');
+        console.log('');
+        console.log('Then run: npm run demo-escrow -- --escrow-address <DEPLOYED_ADDRESS>');
+        return;
+      }
+      
+      console.log('✅ Using pre-deployed Escrow:', escrowAddress);
+      
+      // Initialize Escrow manager
+      const escrowManager = new EscrowManager(
+        config.evmRpcUrl,
+        '1009aeecc8509ac354e5dd2d765ba5a5d0da75f311ffed141f8d0d2fb2c14556',
+        escrowAddress,
+        config.pyusdAddress!
+      );
+      
+      // Check escrow status
+      const escrowInfo = await escrowManager.getEscrowInfo();
+      console.log('📊 Escrow Contract Info:');
+      console.log('   Owner:', escrowInfo.owner);
+      console.log('   PYUSD Token:', escrowInfo.pyusdToken);
+      console.log('   Maker Address:', escrowInfo.makerAddress);
+      console.log('   Balance:', ethers.formatUnits(escrowInfo.balance, 6), 'PYUSD');
+      
+      if (escrowInfo.balance === 0n) {
+        console.log('⚠️  Escrow has no PYUSD balance. Please fund it first.');
+        console.log('   Call fundEscrow(10000000) to fund with 10 PYUSD');
+        return;
+      }
+      
+      console.log('\n🚀 Starting BTC to PYUSD atomic swap with Escrow...\n');
+      
+      const swap = new BtcToPyusdSwap(config);
+      swap.setupEscrow(escrowAddress);
+      
+      const order = await swap.createOrder();
+      const result = await swap.executeSwap(order);
+      
+      if (result.phase === 'completed') {
+        console.log(chalk.green('\n🎉 BTC to PYUSD atomic swap with Escrow completed successfully!'));
+        console.log(chalk.blue('BTC TX:'), result.txHashes?.btc);
+        console.log(chalk.blue('PYUSD TX:'), result.txHashes?.evm);
+        console.log('\n💡 The maker received real PYUSD via the Escrow contract!');
+      } else {
+        console.log(chalk.red('\n❌ Swap failed:'), result.message);
+      }
+    } catch (error) {
+      console.error(chalk.red('❌ Error:'), error);
+    }
+  });
+
+program
+  .command('demo-mock')
+  .description('Mock demo with simulated transactions (always works)')
+  .action(async () => {
+    console.log('🎯 BTC ↔ PYUSD Atomic Swap Demo\n');
+    console.log('This demonstrates the complete atomic swap flow with real testnet transactions.');
+    console.log('If testnet RPC is unavailable, it will automatically fallback to mock mode.\n');
+    
+    const config: SwapConfig = {
+      evmPrivateKey: '0x16fc63853f076f6d09a7aa3621f4ed5f91d9b1629398b6b846e376740c11e3cc',
+      btcPrivateKey: 'cSA7m2GUbwpa6HedKN6TpN4c2xdT2zL22tRbXNZKr9sTJEpXitbU',
+      amount: '1000000', // 1 PYUSD (6 decimals)
+      evmRpcUrl: 'https://eth-sepolia.g.alchemy.com/v2/CQENf_IMmkawSrqgpR14l',
+      btcRpcUrl: 'https://mempool.space/testnet/api', // Try real testnet first
+      pyusdAddress: '0xCaC524BcA292aaade2DF8A05cC58F0a65B1B3bB9'
+    };
+    
+    console.log('🚀 Starting mock BTC to PYUSD atomic swap demo...\n');
+    
+    try {
+      const swap = new BtcToPyusdSwap(config);
+      const order = await swap.createOrder();
+      const result = await swap.executeSwap(order);
+      
+      if (result.phase === 'completed') {
+        console.log(chalk.green('\n🎉 Mock BTC to PYUSD atomic swap completed successfully!'));
+        console.log(chalk.blue('BTC TX:'), result.txHashes?.btc);
+        console.log(chalk.blue('PYUSD TX:'), result.txHashes?.evm);
+        console.log('\n💡 This was a simulated transaction for demonstration purposes.');
+        console.log('💡 Use "demo-real" command for actual testnet transactions.');
+      } else {
+        console.log(chalk.red('\n❌ Swap failed:'), result.message);
+      }
+    } catch (error) {
+      console.error(chalk.red('❌ Error:'), error);
+    }
+  });
+
+program
+  .command('demo-real')
+  .description('Real testnet demo with actual on-chain transactions')
+  .action(async () => {
+    console.log('🎯 Real Testnet Atomic Swap Demo\n');
+    console.log('This will perform REAL on-chain transactions using testnet networks.\n');
+    console.log('⚠️  SAFETY: This uses only testnet networks (Sepolia & Testnet3)');
+    console.log('⚠️  No real money is involved - completely safe!\n');
+    
+    const answer = await inquirer.prompt([{
+      type: 'confirm',
+      name: 'proceed',
+      message: 'Do you want to proceed with real testnet demo?',
+      default: false
+    }]);
+    
+    if (!answer.proceed) {
+      console.log('Demo cancelled. Use mock mode for safe testing:');
+      console.log('npx ts-node src/index.ts evm-to-btc --btc-rpc "https://mock.btc.api"');
+      return;
+    }
+    
+    // Generate testnet wallets
+    const { generateTestnetWallets } = require('../../testnet-setup');
+    const wallets = generateTestnetWallets();
+    
+    console.log('\n🔑 Generated testnet wallets:');
+    console.log(`📱 EVM: ${wallets.evm.address}`);
+    console.log(`₿ BTC: ${wallets.btc.address}\n`);
+    
+    console.log('🚰 Get testnet funds from:');
+    console.log('   EVM: https://sepoliafaucet.com/');
+    console.log('   BTC: https://testnet-faucet.mempool.co/\n');
+    
+    const config: SwapConfig = {
+      evmPrivateKey: wallets.evm.privateKey,
+      btcPrivateKey: wallets.btc.privateKey,
+      amount: '1000000000000000', // 0.001 ETH
+      evmRpcUrl: 'https://eth-sepolia.g.alchemy.com/v2/YOUR_KEY',
+      btcRpcUrl: 'https://mempool.space/testnet/api'
+    };
+    
+    console.log('🚀 Starting real testnet swap...\n');
+    
+    try {
+      const swap = new EvmToBtcSwap(config);
+      const order = await swap.createOrder();
+      const result = await swap.executeSwap(order);
+      
+      if (result.phase === 'completed') {
+        console.log(chalk.green('\n🎉 Real testnet swap completed!'));
+        console.log(chalk.blue('EVM TX:'), result.txHashes?.evm);
+        console.log(chalk.blue('BTC TX:'), result.txHashes?.btc);
+        console.log('\n🔍 Check transactions on:');
+        console.log(`   EVM: https://sepolia.etherscan.io/address/${wallets.evm.address}`);
+        console.log(`   BTC: https://mempool.space/testnet/address/${wallets.btc.address}`);
+      } else {
+        console.log(chalk.red('\n❌ Swap failed:'), result.message);
+      }
+    } catch (error) {
+      console.error(chalk.red('❌ Error:'), error);
+    }
+  });
+
+program
   .command('interactive')
   .description('Interactive swap mode')
   .action(async () => {
@@ -101,7 +397,9 @@ program
           message: 'Choose swap direction:',
           choices: [
             { name: 'EVM → BTC', value: 'evm-to-btc' },
-            { name: 'BTC → EVM', value: 'btc-to-evm' }
+            { name: 'BTC → EVM', value: 'btc-to-evm' },
+            { name: 'BTC → PYUSD', value: 'btc-to-pyusd' },
+            { name: 'PYUSD → BTC', value: 'pyusd-to-btc' }
           ]
         },
         {
@@ -159,13 +457,35 @@ program
         } else {
           console.log(chalk.red('\n❌ Swap failed:'), result.message);
         }
-      } else {
+      } else if (answers.direction === 'btc-to-evm') {
         const swap = new BtcToEvmSwap(config);
         const order = await swap.createOrder();
         const result = await swap.executeSwap(order);
         
         if (result.phase === 'completed') {
           console.log(chalk.green('\n🎉 Swap completed successfully!'));
+        } else {
+          console.log(chalk.red('\n❌ Swap failed:'), result.message);
+        }
+      } else if (answers.direction === 'btc-to-pyusd') {
+        config.pyusdAddress = '0xCaC524BcA292aaade2DF8A05cC58F0a65B1B3bB9';
+        const swap = new BtcToPyusdSwap(config);
+        const order = await swap.createOrder();
+        const result = await swap.executeSwap(order);
+        
+        if (result.phase === 'completed') {
+          console.log(chalk.green('\n🎉 BTC to PYUSD swap completed successfully!'));
+        } else {
+          console.log(chalk.red('\n❌ Swap failed:'), result.message);
+        }
+      } else if (answers.direction === 'pyusd-to-btc') {
+        config.pyusdAddress = '0xCaC524BcA292aaade2DF8A05cC58F0a65B1B3bB9';
+        const swap = new PyusdToBtcSwap(config);
+        const order = await swap.createOrder();
+        const result = await swap.executeSwap(order);
+        
+        if (result.phase === 'completed') {
+          console.log(chalk.green('\n🎉 PYUSD to BTC swap completed successfully!'));
         } else {
           console.log(chalk.red('\n❌ Swap failed:'), result.message);
         }
