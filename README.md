@@ -1,4 +1,4 @@
-# 🔄 Atomic Swap CLI - BTC ↔ PYUSD
+# 🔄 Autopay Atomic Swap - BTC ↔ PYUSD
 
 A comprehensive CLI tool for atomic swaps between Bitcoin (BTC) and PayPal USD (PYUSD) with integrated AutoPay functionality. This system supports both on-chain and  transaction flows for complete cross-chain asset exchange.
 
