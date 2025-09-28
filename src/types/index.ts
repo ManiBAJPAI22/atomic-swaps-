@@ -1,6 +1,7 @@
 export interface SwapConfig {
   evmPrivateKey: string;
-  btcPrivateKey: string;
+  btcPrivateKey?: string; // Optional for PYUSD → BTC flow
+  btcAddress?: string; // BTC address for receiving funds
   evmRpcUrl: string;
   btcRpcUrl: string;
   amount: string;

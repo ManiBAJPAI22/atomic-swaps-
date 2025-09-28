@@ -97,6 +97,79 @@ program
   });
 
 program
+  .command('btc-to-pyusd')
+  .description('Swap BTC to PYUSD (PayPal USD)')
+  .option('-e, --evm-key <key>', 'EVM private key')
+  .option('-b, --btc-key <key>', 'BTC private key')
+  .option('-a, --amount <amount>', 'Amount to swap (in satoshis)')
+  .option('--evm-rpc <url>', 'EVM RPC URL', 'https://eth-sepolia.g.alchemy.com/v2/CQENf_IMmkawSrqgpR14l')
+  .option('--btc-rpc <url>', 'BTC RPC URL', 'https://blockstream.info/testnet/api')
+  .action(async (options) => {
+    try {
+      console.log('🚀 BTC → PYUSD Atomic Swap\n');
+      const config = await getSwapConfig(options, 'btc-to-pyusd');
+      const swap = new BtcToPyusdSwap(config);
+      
+      const spinner = ora('Creating swap order...').start();
+      const order = await swap.createOrder();
+      spinner.succeed('Order created');
+
+      const executeSpinner = ora('Executing swap...').start();
+      const result = await swap.executeSwap(order);
+      
+      if (result.phase === 'completed') {
+        executeSpinner.succeed('Swap completed successfully!');
+        console.log(chalk.green('\n🎉 Swap Results:'));
+        console.log(chalk.blue('Order Hash:'), result.txHashes?.evm);
+        console.log(chalk.blue('BTC TX:'), result.txHashes?.btc);
+      } else {
+        executeSpinner.fail('Swap failed');
+        console.log(chalk.red('Error:'), result.message);
+      }
+    } catch (error) {
+      console.error(chalk.red('❌ Error:'), error);
+      process.exit(1);
+    }
+  });
+
+program
+  .command('pyusd-to-btc')
+  .description('Swap PYUSD (PayPal USD) to BTC')
+  .option('-e, --evm-key <key>', 'EVM private key')
+  .option('-b, --btc-key <key>', 'BTC private key (optional)')
+  .option('--btc-address <address>', 'BTC address to receive funds (if no private key)')
+  .option('-a, --amount <amount>', 'Amount to swap (in PYUSD)')
+  .option('--evm-rpc <url>', 'EVM RPC URL', 'https://eth-sepolia.g.alchemy.com/v2/CQENf_IMmkawSrqgpR14l')
+  .option('--btc-rpc <url>', 'BTC RPC URL', 'https://blockstream.info/testnet/api')
+  .action(async (options) => {
+    try {
+      console.log('🚀 PYUSD → BTC Atomic Swap\n');
+      const config = await getSwapConfig(options, 'pyusd-to-btc');
+      const swap = new PyusdToBtcSwap(config);
+      
+      const spinner = ora('Creating swap order...').start();
+      const order = await swap.createOrder();
+      spinner.succeed('Order created');
+
+      const executeSpinner = ora('Executing swap...').start();
+      const result = await swap.executeSwap(order);
+      
+      if (result.phase === 'completed') {
+        executeSpinner.succeed('Swap completed successfully!');
+        console.log(chalk.green('\n🎉 Swap Results:'));
+        console.log(chalk.blue('Order Hash:'), result.txHashes?.evm);
+        console.log(chalk.blue('BTC TX:'), result.txHashes?.btc);
+      } else {
+        executeSpinner.fail('Swap failed');
+        console.log(chalk.red('Error:'), result.message);
+      }
+    } catch (error) {
+      console.error(chalk.red('❌ Error:'), error);
+      process.exit(1);
+    }
+  });
+
+program
   .command('demo-escrow-complete')
   .description('Complete demo: deploy Escrow, fund it, and run atomic swap')
   .action(async () => {
@@ -122,7 +195,11 @@ program
       
       console.log('📊 Account Information:');
       console.log('   EVM Address:', '0x777c5966E8327EbEcAbB21b043ACeDE9acBaCA7B'); // Maker address
-      console.log('   BTC Address:', walletFromPrivateKey(config.btcPrivateKey, bitcoin.networks.testnet).address);
+      if (config.btcPrivateKey) {
+        console.log('   BTC Address:', walletFromPrivateKey(config.btcPrivateKey, bitcoin.networks.testnet).address);
+      } else if (config.btcAddress) {
+        console.log('   BTC Address:', config.btcAddress);
+      }
       
       // Check EVM balances for Maker address
       const makerAddress = '0x777c5966E8327EbEcAbB21b043ACeDE9acBaCA7B';
@@ -137,6 +214,10 @@ program
       }
       
       // Check BTC balance
+      if (!config.btcPrivateKey) {
+        console.log('❌ BTC private key required for this operation');
+        return;
+      }
       const btcWallet = walletFromPrivateKey(config.btcPrivateKey, bitcoin.networks.testnet);
       try {
         const btcBalance = await btcProvider.getBalance(btcWallet.address);
@@ -408,6 +489,7 @@ program
 async function getSwapConfig(options: any, direction: string): Promise<SwapConfig> {
   let evmKey = options.evmKey;
   let btcKey = options.btcKey;
+  let btcAddress = options.btcAddress;
   let amount = options.amount;
 
   if (!evmKey) {
@@ -420,14 +502,53 @@ async function getSwapConfig(options: any, direction: string): Promise<SwapConfi
     evmKey = answer.key;
   }
 
-  if (!btcKey) {
-    const answer = await inquirer.prompt([{
-      type: 'password',
-      name: 'key',
-      message: 'Enter your BTC private key:',
-      mask: '*'
-    }]);
-    btcKey = answer.key;
+  // For PYUSD → BTC, we can work with just BTC address
+  if (direction === 'pyusd-to-btc') {
+    if (!btcKey && !btcAddress) {
+      const answer = await inquirer.prompt([{
+        type: 'list',
+        name: 'btcInput',
+        message: 'How do you want to provide BTC info?',
+        choices: [
+          { name: 'BTC Private Key (full control)', value: 'key' },
+          { name: 'BTC Address only (receive funds)', value: 'address' }
+        ]
+      }]);
+      
+      if (answer.btcInput === 'key') {
+        const keyAnswer = await inquirer.prompt([{
+          type: 'password',
+          name: 'key',
+          message: 'Enter your BTC private key:',
+          mask: '*'
+        }]);
+        btcKey = keyAnswer.key;
+      } else {
+        const addressAnswer = await inquirer.prompt([{
+          type: 'input',
+          name: 'address',
+          message: 'Enter your BTC address to receive funds:',
+          validate: (input) => {
+            if (!input || input.length < 26) {
+              return 'Please enter a valid Bitcoin address';
+            }
+            return true;
+          }
+        }]);
+        btcAddress = addressAnswer.address;
+      }
+    }
+  } else {
+    // For other swaps, BTC private key is required
+    if (!btcKey) {
+      const answer = await inquirer.prompt([{
+        type: 'password',
+        name: 'key',
+        message: 'Enter your BTC private key:',
+        mask: '*'
+      }]);
+      btcKey = answer.key;
+    }
   }
 
   if (!amount) {
@@ -445,13 +566,21 @@ async function getSwapConfig(options: any, direction: string): Promise<SwapConfi
     amount = answer.amount;
   }
 
-  return {
+  const config: SwapConfig = {
     evmPrivateKey: evmKey,
     btcPrivateKey: btcKey,
+    btcAddress: btcAddress,
     amount: amount,
     evmRpcUrl: options.evmRpc || 'https://sepolia.infura.io/v3/YOUR_KEY',
     btcRpcUrl: options.btcRpc || 'https://blockstream.info/testnet/api'
   };
+
+  // Add PYUSD address for PYUSD-related swaps
+  if (direction === 'btc-to-pyusd' || direction === 'pyusd-to-btc') {
+    config.pyusdAddress = '0xCaC524BcA292aaade2DF8A05cC58F0a65B1B3bB9';
+  }
+
+  return config;
 }
 
 program.parse();

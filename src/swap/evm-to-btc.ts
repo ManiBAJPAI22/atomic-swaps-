@@ -160,6 +160,9 @@ export class EvmToBtcSwap {
   }
 
   private async createBtcHtlc(order: SwapOrder): Promise<string> {
+    if (!this.config.btcPrivateKey) {
+      throw new Error('BTC private key is required for EVM to BTC swaps');
+    }
     const btcUser = walletFromPrivateKey(this.config.btcPrivateKey, bitcoin.networks.testnet);
     const btcResolver = walletFromPrivateKey(
       'cUJ4wz3dLzT8v2ZxKtRpU7qyXZ6E1qur87LGCGMehYTkWHnQTMeD', // Resolver private key
@@ -254,6 +257,9 @@ export class EvmToBtcSwap {
   }
 
   private async claimBtc(order: SwapOrder): Promise<string> {
+    if (!this.config.btcPrivateKey) {
+      throw new Error('BTC private key is required for EVM to BTC swaps');
+    }
     const btcUser = walletFromPrivateKey(this.config.btcPrivateKey, bitcoin.networks.testnet);
     
     // Get HTLC UTXOs
@@ -362,6 +368,9 @@ export class EvmToBtcSwap {
   }
 
   private getHtlcScript(order: SwapOrder): Buffer {
+    if (!this.config.btcPrivateKey) {
+      throw new Error('BTC private key is required for EVM to BTC swaps');
+    }
     const btcUser = walletFromPrivateKey(this.config.btcPrivateKey, bitcoin.networks.testnet);
     const btcResolver = walletFromPrivateKey(
       'cUJ4wz3dLzT8v2ZxKtRpU7qyXZ6E1qur87LGCGMehYTkWHnQTMeD',
